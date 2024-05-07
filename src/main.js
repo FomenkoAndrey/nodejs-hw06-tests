@@ -1,8 +1,42 @@
 console.log('#57. JavaScript homework example file')
 
-import fs, { createReadStream, createWriteStream, existsSync } from 'fs'
+/*
+ *
+ * #2
+ *
+ * Технічне завдання для розробки функції "decompressFile"
+ *
+ * Задача:
+ * Розробити асинхронну функцію, яка використовує алгоритм Gzip для розпакування заданого компресованого файлу у вказане місце збереження. Функція має генерувати унікальне ім'я для розпакованого файлу, якщо файл з таким іменем вже існує, та забезпечувати високий рівень надійності та безпеки процесу розпакування.
+ *
+ * Функціональні вимоги:
+ * 1. Вхідні параметри:
+ *  - `compressedFilePath`: Шлях до компресованого файлу, який потрібно розпакувати.
+ *  - `destinationFilePath`: Шлях, де буде збережено розпакований файл.
+ *
+ * 2. Вихідні дані:
+ *  - Функція повертає шлях до розпакованого файлу як рядок.
+ *
+ * 3. Унікальність:
+ *  - Перевірка наявності існуючих файлів з таким самим іменем і створення унікального імені файлу шляхом додавання номера до існуючого імені, якщо необхідно.
+ *
+ * 4. Обробка помилок:
+ *  - Функція має ідентифікувати та коректно обробляти помилки читання, запису та доступу до файлів.
+ *  - В разі помилок, функція має повертати відповідні повідомлення про помилку або коди помилок,
+ *    що дозволяють користувачеві або іншим частинам програми адекватно реагувати на такі ситуації.
+ *
+ * Технічні вимоги:
+ * - Використання сучасних можливостей JavaScript (ES6+), включаючи асинхронні функції, стрімове API Node.js, та ESM для легкої інтеграції та тестування.
+ * - Функція має бути написана таким чином, щоб її можна було експортувати та використовувати в інших частинах програми або тестових сценаріях.
+ * - Забезпечення документації коду з описом параметрів, процесу роботи, виключень, які можуть бути сгенеровані, та прикладами використання.
+ * - Підготовка функції для можливості легкого мокування та тестування за допомогою JEST.
+ *
+ */
+import fs, { createReadStream, createWriteStream, existsSync, promises as fsPromises } from 'fs'
 import { createGunzip, createGzip } from 'zlib'
 import { join, parse } from 'path'
+import { pipeline } from 'stream'
+import { promisify } from 'util'
 
 /*
  *
@@ -98,50 +132,44 @@ async function compressFile(filePath) {
  *
  */
 
+const pipe = promisify(pipeline)
+
+async function getUniquePath(dir, name, ext) {
+  let counter = 0
+  let finalPath
+  do {
+    finalPath = join(dir, `${name}${counter ? `_${counter}` : ''}${ext}`)
+    counter++
+  } while (
+    await fsPromises
+      .access(finalPath, fs.constants.F_OK)
+      .then(() => true)
+      .catch(() => false)
+  )
+  return finalPath
+}
+
 async function decompressFile(compressedFilePath, destinationFilePath) {
   const { dir, name, ext } = parse(destinationFilePath)
-  let finalPath = destinationFilePath
-  let counter = 1
+  const finalPath = await getUniquePath(dir, name, ext)
 
-  // Перевірка існування кінцевого файлу і генерація унікального імені, якщо потрібно
-  while (existsSync(finalPath)) {
-    finalPath = join(dir, `${name}_${counter}${ext}`)
-    counter++
-  }
+  // Явна перевірка доступу до файлу
+  await fsPromises.access(compressedFilePath, fs.constants.F_OK).catch((err) => {
+    console.error('Error accessing the compressed file:', err.message)
+    throw err
+  })
+
+  const sourceStream = createReadStream(compressedFilePath)
+  const gunzipStream = createGunzip()
+  const destinationStream = createWriteStream(finalPath)
 
   try {
-    // Асинхронна перевірка наявності вхідного файлу
-    await fs.promises.access(compressedFilePath, fs.constants.F_OK)
-
-    const sourceStream = createReadStream(compressedFilePath)
-    const gunzipStream = createGunzip()
-    const destinationStream = createWriteStream(finalPath)
-
-    return new Promise((resolve, reject) => {
-      sourceStream
-        .on('error', (err) => {
-          console.error('Error in source stream:', err)
-          reject(err)
-        })
-        .pipe(gunzipStream)
-        .on('error', (err) => {
-          console.error('Error in gunzip stream:', err)
-          reject(err)
-        })
-        .pipe(destinationStream)
-        .on('finish', () => {
-          console.log('Decompression finished successfully.')
-          resolve(finalPath)
-        })
-        .on('error', (err) => {
-          console.error('Error in destination stream:', err)
-          reject(err)
-        })
-    })
+    await pipe(sourceStream, gunzipStream, destinationStream)
+    console.log('Decompression finished successfully.')
+    return finalPath
   } catch (err) {
-    // Логування помилки, якщо файл не знайдено або інша помилка доступу
-    console.error(`File not found or inaccessible: ${compressedFilePath}`, err)
-    throw err // Повторне викидання помилки для подальшої обробки
+    console.error('An error occurred:', err)
+    throw err // Keep throwing to let callers handle it
   }
 }
 
