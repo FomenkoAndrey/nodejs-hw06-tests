@@ -38,48 +38,8 @@ console.log('#58. JavaScript homework example file')
  *
  */
 
-import fs, { createReadStream, createWriteStream, promises as fsPromises } from 'fs'
-import { createGunzip, createGzip } from 'zlib'
-import { join, parse } from 'path'
-import { pipeline } from 'stream'
-import { promisify } from 'util'
-
-const pipe = promisify(pipeline)
-
-async function getUniquePath(dir, name, ext) {
-  let counter = 0
-  let finalPath
-  do {
-    finalPath = join(dir, `${name}${counter ? `_${counter}` : ''}${ext}`)
-    counter++
-    try {
-      await fsPromises.access(finalPath)
-    } catch (err) {
-      if (err.code === 'ENOENT') {
-        return finalPath // Якщо файл не існує, повертаємо цей шлях
-      }
-      throw err // Якщо інша помилка, кидаємо виключення
-    }
-  } while (true) // Продовжуємо поки не знайдемо унікальний шлях
-}
-
 async function compressFile(filePath) {
-  const { dir, name, ext } = parse(filePath)
-  // Додаємо .gz до існуючого розширення
-  const compressedFilePath = await getUniquePath(dir, name, ext + '.gz')
-
-  const sourceStream = createReadStream(filePath)
-  const gzipStream = createGzip()
-  const destinationStream = createWriteStream(compressedFilePath)
-
-  try {
-    await pipe(sourceStream, gzipStream, destinationStream)
-    console.log('Compression finished successfully.')
-    return compressedFilePath
-  } catch (err) {
-    console.error('An error occurred during compression:', err)
-    throw err
-  }
+  // code here
 }
 
 /*
@@ -116,41 +76,20 @@ async function compressFile(filePath) {
  */
 
 async function decompressFile(compressedFilePath, destinationFilePath) {
-  const { dir, name, ext } = parse(destinationFilePath)
-  const finalPath = await getUniquePath(dir, name, ext)
-
-  // Явна перевірка доступу до файлу
-  await fsPromises.access(compressedFilePath, fs.constants.F_OK).catch((err) => {
-    console.error('Error accessing the compressed file:', err.message)
-    throw err
-  })
-
-  const sourceStream = createReadStream(compressedFilePath)
-  const gunzipStream = createGunzip()
-  const destinationStream = createWriteStream(finalPath)
-
-  try {
-    await pipe(sourceStream, gunzipStream, destinationStream)
-    console.log('Decompression finished successfully.')
-    return finalPath
-  } catch (err) {
-    console.error('An error occurred:', err)
-    throw err // Keep throwing to let callers handle it
-  }
+  // code here
 }
 
 // ! Перевірка роботи функцій стиснення та розпакування файлів
-async function performCompressionAndDecompression() {
-  try {
-    const compressedResult = await compressFile('./files/source.txt')
-    console.log(compressedResult)
-    const decompressedResult = await decompressFile(compressedResult, './files/source_decompressed.txt')
-    console.log(decompressedResult)
-  } catch (error) {
-    console.error('Error during compression or decompression:', error)
-  }
-}
-
-performCompressionAndDecompression()
+// async function performCompressionAndDecompression() {
+//   try {
+//     const compressedResult = await compressFile('./files/source.txt')
+//     console.log(compressedResult)
+//     const decompressedResult = await decompressFile(compressedResult, './files/source_decompressed.txt')
+//     console.log(decompressedResult)
+//   } catch (error) {
+//     console.error('Error during compression or decompression:', error)
+//   }
+// }
+// performCompressionAndDecompression()
 
 export { compressFile, decompressFile }
