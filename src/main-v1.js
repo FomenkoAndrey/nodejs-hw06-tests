@@ -1,5 +1,9 @@
 console.log('#58. JavaScript homework example file')
 
+import fs, { createReadStream, createWriteStream, existsSync } from 'fs'
+import { createGunzip, createGzip } from 'zlib'
+import { join, parse } from 'path'
+
 /*
  *
  * #1
@@ -38,48 +42,27 @@ console.log('#58. JavaScript homework example file')
  *
  */
 
-import fs, { createReadStream, createWriteStream, promises as fsPromises } from 'fs'
-import { createGunzip, createGzip } from 'zlib'
-import { join, parse } from 'path'
-import { pipeline } from 'stream'
-import { promisify } from 'util'
-
-const pipe = promisify(pipeline)
-
-async function getUniquePath(dir, name, ext) {
-  let counter = 0
-  let finalPath
-  do {
-    finalPath = join(dir, `${name}${counter ? `_${counter}` : ''}${ext}`)
-    counter++
-    try {
-      await fsPromises.access(finalPath)
-    } catch (err) {
-      if (err.code === 'ENOENT') {
-        return finalPath // Якщо файл не існує, повертаємо цей шлях
-      }
-      throw err // Якщо інша помилка, кидаємо виключення
-    }
-  } while (true) // Продовжуємо поки не знайдемо унікальний шлях
-}
-
 async function compressFile(filePath) {
   const { dir, name, ext } = parse(filePath)
-  // Додаємо .gz до існуючого розширення
-  const compressedFilePath = await getUniquePath(dir, name, ext + '.gz')
+  let counter = 1
+  let compressedFilePath = `${filePath}.gz`
+
+  while (existsSync(compressedFilePath)) {
+    compressedFilePath = join(dir, `${name}_${counter}${ext}.gz`)
+    counter++
+  }
 
   const sourceStream = createReadStream(filePath)
   const gzipStream = createGzip()
   const destinationStream = createWriteStream(compressedFilePath)
 
-  try {
-    await pipe(sourceStream, gzipStream, destinationStream)
-    console.log('Compression finished successfully.')
-    return compressedFilePath
-  } catch (err) {
-    console.error('An error occurred during compression:', err)
-    throw err
-  }
+  return new Promise((resolve, reject) => {
+    sourceStream
+      .pipe(gzipStream)
+      .pipe(destinationStream)
+      .on('finish', () => resolve(compressedFilePath))
+      .on('error', reject)
+  })
 }
 
 /*
@@ -117,25 +100,48 @@ async function compressFile(filePath) {
 
 async function decompressFile(compressedFilePath, destinationFilePath) {
   const { dir, name, ext } = parse(destinationFilePath)
-  const finalPath = await getUniquePath(dir, name, ext)
+  let finalPath = destinationFilePath
+  let counter = 1
 
-  // Явна перевірка доступу до файлу
-  await fsPromises.access(compressedFilePath, fs.constants.F_OK).catch((err) => {
-    console.error('Error accessing the compressed file:', err.message)
-    throw err
-  })
-
-  const sourceStream = createReadStream(compressedFilePath)
-  const gunzipStream = createGunzip()
-  const destinationStream = createWriteStream(finalPath)
+  // Перевірка існування кінцевого файлу і генерація унікального імені, якщо потрібно
+  while (existsSync(finalPath)) {
+    finalPath = join(dir, `${name}_${counter}${ext}`)
+    counter++
+  }
 
   try {
-    await pipe(sourceStream, gunzipStream, destinationStream)
-    console.log('Decompression finished successfully.')
-    return finalPath
+    // Асинхронна перевірка наявності вхідного файлу
+    await fs.promises.access(compressedFilePath, fs.constants.F_OK)
+
+    const sourceStream = createReadStream(compressedFilePath)
+    const gunzipStream = createGunzip()
+    const destinationStream = createWriteStream(finalPath)
+
+    return new Promise((resolve, reject) => {
+      sourceStream
+        .on('error', (err) => {
+          console.error('Error in source stream:', err)
+          reject(err)
+        })
+        .pipe(gunzipStream)
+        .on('error', (err) => {
+          console.error('Error in gunzip stream:', err)
+          reject(err)
+        })
+        .pipe(destinationStream)
+        .on('finish', () => {
+          console.log('Decompression finished successfully.')
+          resolve(finalPath)
+        })
+        .on('error', (err) => {
+          console.error('Error in destination stream:', err)
+          reject(err)
+        })
+    })
   } catch (err) {
-    console.error('An error occurred:', err)
-    throw err // Keep throwing to let callers handle it
+    // Логування помилки, якщо файл не знайдено або інша помилка доступу
+    console.error(`File not found or inaccessible: ${compressedFilePath}`, err)
+    throw err // Повторне викидання помилки для подальшої обробки
   }
 }
 
