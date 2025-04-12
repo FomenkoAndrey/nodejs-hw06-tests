@@ -4,6 +4,39 @@ import { describe, beforeEach, test, expect, vi, afterEach } from 'vitest';
 import { vol } from 'memfs';
 import { Readable, Writable, Transform } from 'stream';
 
+// Мокуємо path
+vi.mock('path', () => {
+  return {
+    parse: vi.fn((filePath) => {
+      const baseName = filePath.split('/').pop();
+      const lastDotIndex = baseName.lastIndexOf('.');
+      
+      let name, ext;
+      if (lastDotIndex === -1) {
+        name = baseName;
+        ext = '';
+      } else {
+        name = baseName.substring(0, lastDotIndex);
+        ext = baseName.substring(lastDotIndex);
+      }
+      
+      const dir = filePath.substring(0, filePath.length - baseName.length - 1) || './files';
+      
+      return {
+        dir,
+        name,
+        ext
+      };
+    }),
+    join: vi.fn((dir, filename) => {
+      if (dir.endsWith('/')) {
+        return dir + filename;
+      }
+      return dir + '/' + filename;
+    })
+  };
+});
+
 // Мокуємо fs за допомогою memfs і unionfs
 vi.mock('fs', async () => {
   const realFs = await vi.importActual('fs');
@@ -91,10 +124,41 @@ describe('decompressFile function', () => {
     expect(decompressedContent).toEqual(originalContent);
   });
 
+  test('should create a unique filename if destination file exists', async () => {
+    // Спочатку створюємо файл з таким самим ім'ям як призначення
+    vol.fromJSON({
+      [destinationFilePath]: Buffer.from('existing content', 'utf-8')
+    }, true); // true для додавання до існуючої віртуальної ФС
+
+    const expectedUniqueFileName = join(baseDir, 'source_decompressed_1.txt');
+    
+    const resultPath = await decompressFile(compressedFilePath, destinationFilePath);
+    
+    expect(resultPath).toBe(expectedUniqueFileName);
+    expect(vol.existsSync(resultPath)).toBe(true);
+    expect(vol.readFileSync(resultPath, 'utf8')).toEqual(originalContent);
+    // Переконаємося, що оригінальний файл залишився незмінним
+    expect(vol.readFileSync(destinationFilePath, 'utf8')).toEqual('existing content');
+  });
+
   test('should handle read errors gracefully', async () => {
     const mockedFs = await import('fs'); // Отримуємо замокану версію fs
     vi.spyOn(mockedFs.promises, 'access').mockRejectedValueOnce(new Error('Failed to access file'));
     await expect(decompressFile(compressedFilePath, destinationFilePath)).rejects.toThrow('Failed to access file');
+  });
+
+  test('should handle stream errors during decompression', async () => {
+    const mockedFs = await import('fs');
+    vi.spyOn(mockedFs, 'createReadStream').mockImplementationOnce(() => {
+      const readable = new Readable();
+      readable._read = () => {};
+      process.nextTick(() => {
+        readable.emit('error', new Error('Stream error'));
+      });
+      return readable;
+    });
+
+    await expect(decompressFile(compressedFilePath, destinationFilePath)).rejects.toThrow('Stream error');
   });
 
   afterEach(() => {
