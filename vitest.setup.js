@@ -1,10 +1,10 @@
-import '@testing-library/jest-dom'
+// Node.js specific setup
+import { vi } from 'vitest'
 
-// Глобальні мок-функції для fetch
+// Налаштування мок-функцій для Node.js середовища
 beforeEach(() => {
   console.error = vi.fn()
   console.log = vi.fn()
-  global.fetch = vi.fn()
 })
 
 afterEach(() => {
