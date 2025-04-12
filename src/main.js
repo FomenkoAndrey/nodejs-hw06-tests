@@ -1,5 +1,3 @@
-console.log('#58. JavaScript homework example file')
-
 /*
  *
  * #1
@@ -151,6 +149,4 @@ async function performCompressionAndDecompression() {
   }
 }
 
-performCompressionAndDecompression()
-
-export { compressFile, decompressFile }
+export { compressFile, decompressFile, performCompressionAndDecompression }
