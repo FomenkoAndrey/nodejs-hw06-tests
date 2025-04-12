@@ -61,78 +61,6 @@ vi.mock('fs', async () => {
   };
 });
 
-// Мокуємо path
-vi.mock('path', () => {
-  return {
-    parse: vi.fn((filePath) => {
-      const baseName = filePath.split('/').pop();
-      const lastDotIndex = baseName.lastIndexOf('.');
-      
-      let name, ext;
-      if (lastDotIndex === -1) {
-        name = baseName;
-        ext = '';
-      } else {
-        name = baseName.substring(0, lastDotIndex);
-        ext = baseName.substring(lastDotIndex);
-      }
-      
-      const dir = filePath.substring(0, filePath.length - baseName.length - 1) || './files';
-      
-      return {
-        dir,
-        name,
-        ext
-      };
-    }),
-    join: vi.fn((dir, filename) => {
-      if (dir.endsWith('/')) {
-        return dir + filename;
-      }
-      return dir + '/' + filename;
-    })
-  };
-});
-
-// Мокуємо zlib
-vi.mock('zlib', () => {
-  return {
-    createGzip: vi.fn(() => {
-      const transform = new Transform();
-      transform._transform = (chunk, encoding, callback) => {
-        callback(null, Buffer.from('compressed:' + chunk));
-      };
-      return transform;
-    }),
-    createGunzip: vi.fn(() => {
-      const transform = new Transform();
-      transform._transform = (chunk, encoding, callback) => {
-        const content = chunk.toString().replace('compressed:', '');
-        callback(null, Buffer.from(content));
-      };
-      return transform;
-    })
-  };
-});
-
-// Мокуємо util
-vi.mock('util', () => {
-  return {
-    promisify: vi.fn((fn) => {
-      return (...args) => {
-        const [source, transform, destination] = args;
-        return new Promise((resolve, reject) => {
-          source.on('error', reject);
-          transform.on('error', reject);
-          destination.on('error', reject);
-          source.pipe(transform).pipe(destination);
-          destination.on('finish', resolve);
-        });
-      };
-    })
-  };
-});
-
 describe('File Content Comparison', () => {
   const baseDir = join(__dirname, '..', 'files');
   const originalFilePath = join(baseDir, 'source.txt');
@@ -161,32 +89,32 @@ describe('File Content Comparison', () => {
     const decompressedContent = await fsPromises.readFile(decompressedFilePath, 'utf8');
 
     expect(decompressedContent).toEqual(originalContentRead);
-    
+
     // Перевіряємо вміст стисненого файлу
     const compressedContent = await fsPromises.readFile(compressedFilePath, 'utf8');
     expect(compressedContent).toContain('compressed:');
   });
-  
+
   test('should handle unique filenames when compressing and decompressing', async () => {
     // Додаємо існуючий стиснений файл
     vol.fromJSON({
       [originalFilePath]: Buffer.from(originalContent, 'utf-8'),
       [compressedFilePath]: Buffer.from('already compressed', 'utf-8')
     });
-    
+
     // Перевіряємо створення унікального імені при стисненні
     const uniqueCompressedPath = await compressFile(originalFilePath);
     expect(uniqueCompressedPath).toBe(join(baseDir, 'source_1.txt.gz'));
-    
+
     // Додаємо існуючий розпакований файл
     vol.fromJSON({
       [decompressedFilePath]: Buffer.from('existing decompressed content', 'utf-8')
     });
-    
+
     // Перевіряємо створення унікального імені при розпакуванні
     const uniqueDecompressedPath = await decompressFile(uniqueCompressedPath, decompressedFilePath);
     expect(uniqueDecompressedPath).toBe(join(baseDir, 'source_decompressed_1.txt'));
-    
+
     // Перевіряємо вміст файлів
     const fsPromises = (await import('fs')).promises;
     const originalContentRead = await fsPromises.readFile(originalFilePath, 'utf8');
@@ -196,7 +124,7 @@ describe('File Content Comparison', () => {
 
   test('should handle stream errors during both compression and decompression', async () => {
     const mockedFs = await import('fs');
-    
+
     // Мокуємо помилку потоку читання при стисненні
     vi.spyOn(mockedFs, 'createReadStream').mockImplementationOnce(() => {
       const readable = new Readable();
@@ -206,9 +134,9 @@ describe('File Content Comparison', () => {
       });
       return readable;
     });
-    
+
     await expect(compressFile(originalFilePath)).rejects.toThrow('Compression stream error');
-    
+
     // Створюємо стиснений файл для тестування розпакування
     vi.spyOn(mockedFs, 'createReadStream').mockImplementation(() => {
       const content = vol.readFileSync(originalFilePath);
@@ -219,7 +147,7 @@ describe('File Content Comparison', () => {
       return readable;
     });
     await compressFile(originalFilePath);
-    
+
     // Мокуємо помилку потоку читання при розпакуванні
     vi.spyOn(mockedFs, 'createReadStream').mockImplementationOnce(() => {
       const readable = new Readable();
@@ -229,7 +157,7 @@ describe('File Content Comparison', () => {
       });
       return readable;
     });
-    
+
     await expect(decompressFile(compressedFilePath, decompressedFilePath)).rejects.toThrow('Decompression stream error');
   });
 
@@ -238,6 +166,20 @@ describe('File Content Comparison', () => {
     const fsPromises = (await import('fs')).promises;
     await expect(fsPromises.readFile(originalFilePath, 'utf8')).rejects.toThrow('ENOENT');
     await expect(fsPromises.readFile(decompressedFilePath, 'utf8')).rejects.toThrow('ENOENT');
+  });
+
+  test('should handle zlib errors during decompression', async () => {
+    const mockedZlib = await import('zlib');
+    vi.spyOn(mockedZlib, 'createGunzip').mockImplementationOnce(() => {
+      const transform = new Transform();
+      transform._transform = (chunk, encoding, callback) => {
+        callback(new Error('Invalid Gzip data'));
+      };
+      return transform;
+    });
+
+    await compressFile(originalFilePath);
+    await expect(decompressFile(compressedFilePath, decompressedFilePath)).rejects.toThrow('Invalid Gzip data');
   });
 
   afterEach(() => {

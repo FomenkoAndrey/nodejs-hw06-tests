@@ -2,45 +2,12 @@ import { join } from 'path';
 import { decompressFile } from '../main';
 import { describe, beforeEach, test, expect, vi, afterEach } from 'vitest';
 import { vol } from 'memfs';
-import { Readable, Writable, Transform } from 'stream';
-
-// Мокуємо path
-vi.mock('path', () => {
-  return {
-    parse: vi.fn((filePath) => {
-      const baseName = filePath.split('/').pop();
-      const lastDotIndex = baseName.lastIndexOf('.');
-      
-      let name, ext;
-      if (lastDotIndex === -1) {
-        name = baseName;
-        ext = '';
-      } else {
-        name = baseName.substring(0, lastDotIndex);
-        ext = baseName.substring(lastDotIndex);
-      }
-      
-      const dir = filePath.substring(0, filePath.length - baseName.length - 1) || './files';
-      
-      return {
-        dir,
-        name,
-        ext
-      };
-    }),
-    join: vi.fn((dir, filename) => {
-      if (dir.endsWith('/')) {
-        return dir + filename;
-      }
-      return dir + '/' + filename;
-    })
-  };
-});
+import { Readable, Writable } from 'stream';
 
 // Мокуємо fs за допомогою memfs і unionfs
 vi.mock('fs', async () => {
   const realFs = await vi.importActual('fs');
-  const memfs = require('memfs').fs; // Використовуємо memfs.fs
+  const memfs = require('memfs').fs;
   const unionFs = require('unionfs').ufs;
   unionFs.use(memfs).use(realFs);
   unionFs.constants = realFs.constants;
@@ -57,7 +24,7 @@ vi.mock('fs', async () => {
         }
       });
     }),
-    ...memfs.promises // Додаємо інші методи promises з memfs
+    ...memfs.promises
   };
 
   return {
@@ -81,21 +48,6 @@ vi.mock('fs', async () => {
         callback();
       };
       return writable;
-    })
-  };
-});
-
-// Мокуємо zlib
-vi.mock('zlib', () => {
-  return {
-    createGunzip: vi.fn(() => {
-      const transform = new Transform();
-      transform._transform = (chunk, encoding, callback) => {
-        // Імітуємо розпакування: повертаємо оригінальний вміст без префікса "compressed:"
-        const content = chunk.toString().replace('compressed:', '');
-        callback(null, Buffer.from(content));
-      };
-      return transform;
     })
   };
 });
@@ -128,7 +80,7 @@ describe('decompressFile function', () => {
     // Спочатку створюємо файл з таким самим ім'ям як призначення
     vol.fromJSON({
       [destinationFilePath]: Buffer.from('existing content', 'utf-8')
-    }, true); // true для додавання до існуючої віртуальної ФС
+    });
 
     const expectedUniqueFileName = join(baseDir, 'source_decompressed_1.txt');
     
